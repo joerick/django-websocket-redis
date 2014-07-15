@@ -13,6 +13,17 @@ from ws4redis.redis_store import RedisMessage
 from ws4redis.exceptions import WebSocketError, HandshakeError, UpgradeRequiredError
 
 
+def get_user_from_session(request):
+    if 'django.contrib.sessions.middleware.SessionMiddleware' in settings.MIDDLEWARE_CLASSES:
+        engine = import_module(settings.SESSION_ENGINE)
+        session_key = request.COOKIES.get(settings.SESSION_COOKIE_NAME, None)
+        if session_key:
+            request.session = engine.SessionStore(session_key)
+            if 'django.contrib.auth.middleware.AuthenticationMiddleware' in settings.MIDDLEWARE_CLASSES:
+                from django.contrib.auth import get_user
+                request.user = SimpleLazyObject(lambda: get_user(request))
+
+
 class WebsocketWSGIServer(object):
     def __init__(self, redis_connection=None):
         """
@@ -36,16 +47,9 @@ class WebsocketWSGIServer(object):
             raise HandshakeError('Client does not wish to upgrade to a websocket')
 
     def process_request(self, request):
+        get_user = getattr(settings, 'WS4REDIS_GET_USER', get_user_from_session)
         request.session = None
-        request.user = None
-        if 'django.contrib.sessions.middleware.SessionMiddleware' in settings.MIDDLEWARE_CLASSES:
-            engine = import_module(settings.SESSION_ENGINE)
-            session_key = request.COOKIES.get(settings.SESSION_COOKIE_NAME, None)
-            if session_key:
-                request.session = engine.SessionStore(session_key)
-                if 'django.contrib.auth.middleware.AuthenticationMiddleware' in settings.MIDDLEWARE_CLASSES:
-                    from django.contrib.auth import get_user
-                    request.user = SimpleLazyObject(lambda: get_user(request))
+        request.user = get_user(request)
 
     def process_subscriptions(self, request):
         agreed_channels = []
